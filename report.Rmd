@@ -1,0 +1,230 @@
+---
+title: "Sample data analysis using R report"
+author: "Martín Lotto Batista"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message=FALSE, 
+                      warning=FALSE, kableExtra.auto_format = FALSE)
+```
+
+```{r packages&data}
+pacman::p_load(tidyverse, lubridate, sf, ggspatial, spdep, 
+               kableExtra, cowplot, MASS)
+
+data <- read.csv("data/clean_data.csv")
+pop <- read.csv("data/population_data.csv")
+study.area <- st_read("data/maps/NUTS3_germany_4326.shp", quiet=TRUE)
+```
+
+<style>
+  body {text-align: justify}
+</style>
+
+```{r summary statistics, results='hide'}
+# Total number of cases in dataset
+sum(data$counts)
+
+# Overall annual incidence rate
+(sum(data$counts)/sum(pop$pop))*100000
+
+# Annual incidence rate per district
+map.data <- data %>% 
+  group_by(nuts3, age_cat, sex) %>% 
+  summarise(counts=sum(counts), .groups="drop") %>%
+  left_join(pop) %>% 
+  group_by(nuts1, nuts3, NUTS3_ID) %>% 
+  summarise(counts=sum(counts),
+            pop=sum(pop), .groups="drop") %>%
+  # Compute incidence per 100,000 inhabitants
+  mutate(incidence=(counts/pop)*100000) 
+
+map.data %>% 
+  # Order dataset in decreasing order
+  arrange(desc(incidence)) %>% 
+  # Remove districts with few counts as incidence is inflated in these contexts
+  filter(counts > 5) %>% 
+  head(n=5)
+```
+
+```{r figure1, out.width= "50%", out.extra='style="float:right; padding:10px"'}
+# Create categories for incidence based on case distribution
+map.data <- map.data %>% 
+  mutate(incidence_cat=cut(incidence, 
+                           breaks = seq(0, 150, length.out=6),
+                           include.lowest = TRUE))
+
+pal <- c("#f1eef6", "#d7b5d8", "#df65b0", "#dd1c77", "#980043")
+
+pt1 <- study.area %>%
+  # Add regrouped data
+  left_join(map.data) %>% 
+  ggplot() +
+  # Plot grouped incidence
+  geom_sf(aes(fill=incidence_cat), color="#d4b9de") +
+  # Define palette (using ggthemes)
+  scale_fill_manual(values=pal, 
+                    na.translate=FALSE) +
+  labs(fill="Cases per 100,00 inhabitants",
+       title = "Figure 1") +
+  # Add a layer for Federal states borders by regrouping the intial map
+  geom_sf(data=study.area %>% 
+            group_by(nuts1) %>% 
+            summarise(.groups="drop"), col="black", fill=NA) +
+  # Set aesthetic elements
+  theme_void() +
+  theme(legend.text=element_text(size=9),
+        legend.title=element_text(face="bold", size=9),
+        plot.title=element_text(size=12),
+        plot.margin=unit(c(0,0,0.5,0), "cm")) +
+  annotation_north_arrow(location="tl",
+                                    which_north="true", 
+                                    height=unit(0.85, "cm"), 
+                                    width=unit(0.75, "cm")) +
+  annotation_scale(location="bl", pad_y=unit(0, "cm"), line_width=0.5)
+
+pt1
+```
+
+#### Introduction
+
+This report utilizes data from the German surveillance system, which is publicly 
+available on the online platform Survstat@RKI maintained by the [Robert
+Koch Institute](https://survstat.rki.de/). The data used in this analysis includes 
+weekly case counts of Lyme disease reported in 2021, stratified
+by NUTS-3 district, age group and binary sex classification. Population size data 
+for the corresponding year were extracted from the German Statistics Office (Destatis) 
+For the purpose of this report, cases without spatial allocation or with unknown 
+age or sex designation were excluded. In this document, a brief description of the
+data will be provided using summary statistics, classic visualization techniques, 
+and a basic exploratory analysis.
+
+#### Lyme disease cases in Germany in 2021
+
+In 2021, a total of 10,841 Lyme disease cases were reported to the German surveillance
+system. The overall average annual incidence rate was 13.02 cases per 100,000 inhabitants. 
+The districts with the highest annual incidence rates per 100,000 inhabitants were 
+Straubing-Bogen, Pasau, Regen and Freyung-Grafenay in Bavaria, as well as Bandenburg city 
+located in the state of Brandenburg (Figure 1).
+
+Age showed a bimodal distribution with the first peak among children aged up to 10 years
+old and the second peak among adults between 40 and 75 years old. Regarding sex 
+distribution, the number of cases was higher in females than in males (Table 1). 
+The majority of the Lyme disease cases occurred between late Spring (June) and 
+early Autumn (October) (Figure 3). 
+
+```{r table1}
+# Age group and sex distribution
+data %>% 
+  group_by(sex, age_cat) %>% 
+  summarise(counts=sum(counts), .groups="drop") %>%
+  pivot_wider(names_from=sex, values_from=counts) %>% 
+  mutate(across(2:3, ~paste0(.x, " (",round((.x/sum(.x))*100,2), "%)"))) %>% 
+  rename(`Age group`=age_cat,
+         Females=female,
+         Males=male) %>% 
+  kbl(caption="Table 1") %>%
+  kable_classic(full_width=FALSE, html_font="Arial", position="center")
+```
+
+To assess the general spatial structure in the data, the Global Moran's I statistic 
+was used. The results indicate that the spatial distribution of incidence among 
+districts is random (Moran's I: -0.009, p-value: 0.522).
+
+```{r figure2, fig.width=6, fig.height=4, fig.align='center'}
+# Seasonality
+pt2 <- data %>% 
+  mutate(month=month(date, label=TRUE)) %>% 
+  group_by(nuts3, month) %>% 
+  summarise(counts=sum(counts), .groups="drop") %>%
+  ggplot() +
+  geom_boxplot(aes(x=month, y=counts)) +
+  ylim(c(0,50)) +
+  labs(x="", 
+       y="Cases per 100,000 inhabitants",
+       title="Figure 2") +
+  theme_classic() +
+  theme(axis.text = element_text(angle=45, hjust=1, size=12, face="bold"),
+        axis.title.y=element_text(size=15),
+        plot.title=element_text(size=12))
+
+pt2
+```
+
+```{r MoransI, results='hide'}
+# Compute Moran's I
+# Neighbourhood matrix
+nb <- poly2nb(study.area %>% 
+                filter(nuts3 %in% unique(data$nuts3)), queen=T) 
+# Queen to consider at least one vertex contact as neighbours
+
+# Weights to neighbors
+lw <- nb2listw(nb, style="W", zero.policy=TRUE)
+
+# Hypothesis test where H0: not-randomly distributed
+MC <- moran.mc(map.data$incidence, lw, alternative="greater", nsim=999)
+MC  # MI: -0.009 and p-val: 0.522
+```
+
+```{r Poisson, results='hide'}
+data.model <- data %>% 
+  group_by(nuts3, sex, age_cat) %>% 
+  summarise(counts=sum(counts), .groups="drop") %>% 
+  left_join(pop) %>% 
+  mutate(nuts3=as.numeric(factor(nuts3)))
+
+# Check whether variance is similar to the mean
+var(data.model$counts) # 64.7
+mean(data.model$counts) # 4.7
+# This indicates that there is overdispersion, hence I will use a negative binomial distribution
+
+m <- glm.nb(counts ~ factor(sex) + factor(age_cat) + offset(log(pop)),
+             data=data.model)
+
+CI <- data.frame(estimate=m[["coefficients"]],
+                 lower=confint(m)[,1],
+                 upper=confint(m)[,2]) %>% 
+  rownames_to_column("var") %>% 
+  filter(!grepl("Intercept", var)) %>% 
+  mutate(across(2:4, ~exp(.x)),
+         var=str_replace_all(var, c("factor\\(sex\\)male"="Male",
+                                    "factor\\(age_cat\\)"="Age group ")))
+```
+
+To evaluate the association between age groups, sex and the occurrence of Lyme
+disease, a generalized linear model (GLM) was employed. Given the overdispersion
+in the data, the response was assumed to follow a negative binomial distribution. 
+Based on the results, after accounting for the role of age, the risk of Lyme disease
+was higher in females than in males, with a relative risk (RR) for males of 0.9 
+(CI: 0.84-0.96). Likewise, after considering the effect of sex, the highest risk 
+was observed in the 60-75 age group, with a RR of 1.14 (CI: 1.01-1.29), while the 
+lowest risk in the 10-20 and 20-30 age groups, with RRs of 0.56 (CI: 0.48-0.66) 
+and 0.59 (CI: 0.50-0.69), respectively (Figure 3).
+
+```{r figure3, fig.width=6, fig.height=4, fig.align='center'}
+pt3 <- CI %>% 
+  ggplot() +
+  geom_pointrange(aes(x=var, y=estimate, ymin=lower, ymax=upper)) +
+  geom_hline(yintercept=1, linetype="dashed", col="grey80") +
+  labs(x="", 
+       y="Relative Risk (RR)",
+       title="Figure 3") +
+  coord_flip() +
+  theme_classic() +
+  theme(axis.text.x=element_text(angle=45, hjust=1),
+        axis.text=element_text(size=9),
+        plot.title=element_text(size=9))
+
+pt3
+```
+
+#### Conclusion
+All the Federal States in Germany with ongoing Lyme disease surveillance reported 
+cases cases to the national surveillance system. The highest incidence was found in 
+Bavaria and Brandenburg states, and there were signs of a random spatial distribution 
+of cases. The risk of disease was higher in females than in males, as well as in 
+adults between 60 and 75 years old.
+
+#### End of report
