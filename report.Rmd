@@ -95,8 +95,9 @@ available on the online platform Survstat@RKI maintained by the [Robert
 Koch Institute](https://survstat.rki.de/). The data used in this analysis includes 
 weekly case counts of Lyme disease reported in 2021, stratified
 by NUTS-3 district, age group and binary sex classification. Population size data 
-for the corresponding year were extracted from the German Statistics Office (Destatis) 
-For the purpose of this report, cases without spatial allocation or with unknown 
+for the corresponding year were extracted from the German Statistics Office 
+[(Destatis)](https://www.destatis.de/DE/Home/_inhalt.html). For the purpose of this 
+report, cases without spatial allocation or with unknown 
 age or sex designation were excluded. In this document, a brief description of the
 data will be provided using summary statistics, classic visualization techniques, 
 and a basic exploratory analysis.
@@ -222,9 +223,9 @@ pt3
 
 #### Conclusion
 All the Federal States in Germany with ongoing Lyme disease surveillance reported 
-cases cases to the national surveillance system. The highest incidence was found in 
+cases to the national surveillance system. The highest incidence was found in 
 Bavaria and Brandenburg states, and there were signs of a random spatial distribution 
 of cases. The risk of disease was higher in females than in males, as well as in 
 adults between 60 and 75 years old.
 
-#### End of report
+#### End
